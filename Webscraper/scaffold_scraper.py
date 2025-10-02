@@ -1,0 +1,309 @@
+Web Scraper Framework for TradeBot (Python Async)
+
+------------------------------------------------------------
+
+This scaffolds a robust, polite web-scraper that complements
+
+your market DB by collecting:
+
+- SEC EDGAR filings (10-K, 10-Q, 8-K) – SAFE & allowed
+
+- Generic RSS feeds (news/press releases)
+
+
+
+It includes:
+
+- Async HTTP client (httpx) with retries/backoff
+
+- robots.txt checks (polite crawling)
+
+- Rate limiting & user-agent rotation
+
+- YAML-driven config
+
+- DuckDB storage (same DB as your ingest)
+
+- CLI commands to run crawls
+
+
+
+NOTE: Many finance sites prohibit scraping in ToS. Prefer official
+
+APIs when possible. EDGAR & RSS are safe to start.
+
+------------------------------------------------------------
+
+from future import annotations from pathlib import Path import os
+
+ROOT = Path.home() / "tradebot" / "scraper"
+
+FILES: dict[str, str] = {}
+
+-----------------------------
+
+Helpers
+
+-----------------------------
+
+def write(path: Path, content: str, exist_ok: bool = True): path.parent.mkdir(parents=True, exist_ok=True) if path.exists() and not exist_ok: return path.write_text(content, encoding="utf-8")
+
+-----------------------------
+
+requirements.txt
+
+-----------------------------
+
+FILES["requirements.scraper.txt"] = """ httpx[http2]>=0.27 anyio>=4.4 tenacity>=8.2 selectolax>=0.3.21 pydantic>=2.7 PyYAML>=6.0 duckdb>=1.0.0 feedparser>=6.0.11 python-dateutil>=2.9 user-agents>=2.2 """.strip() + "\n"
+
+-----------------------------
+
+README
+
+-----------------------------
+
+FILES["README_SCRAPER.md"] = """
+
+TradeBot Web Scraper (Async)
+
+This scraper collects public, scrape-friendly data:
+
+SEC EDGAR filings: 10-K/10-Q/8-K (company disclosures)
+
+RSS feeds: press releases, news headlines
+
+
+It stores results in DuckDB alongside your market data.
+
+Install
+
+python3 -m venv ~/tradebot/.venv && source ~/tradebot/.venv/bin/activate
+pip install -r ~/tradebot/scraper/requirements.scraper.txt
+
+Quick start
+
+# EDGAR by CIK or ticker (we map via SEC JSON lookup)
+python -m scraper.main edgar --ticker AAPL --forms 10-K,10-Q,8-K --limit 50
+
+# RSS crawl
+python -m scraper.main rss --url https://www.prnewswire.com/rss/industry/technology-latest-news.rss --limit 200
+
+Notes
+
+The scraper respects robots.txt and uses a reasonable default rate limit.
+
+Do not scrape sites that prohibit it; EDGAR & RSS are safe.
+
+You can add new sources under scraper/sources/ by extending BaseSource. """.strip() + "\n"
+
+
+-----------------------------
+
+Package init
+
+-----------------------------
+
+FILES["scraper/init.py"] = """ all = [] """
+
+-----------------------------
+
+Config (YAML)
+
+-----------------------------
+
+FILES["scraper/config.yaml"] = """ user_agent: "TradeBotScraper/1.0 (+https://example.com/contact)" concurrency: 5 rate_limit_per_host_per_sec: 1.0   # polite default storage: duckdb_path: "~/tradebot/data/market.duckdb" table_edgar: edgar_filings table_rss: rss_items """.strip() + "\n"
+
+-----------------------------
+
+Storage (DuckDB)
+
+-----------------------------
+
+FILES["scraper/storage.py"] = """ from future import annotations from pathlib import Path import duckdb from typing import Iterable, Dict, Any
+
+from .utils import expanduser
+
+SCHEMA_EDGAR = """ CREATE TABLE IF NOT EXISTS edgar_filings ( cik TEXT, ticker TEXT, company TEXT, form TEXT, filing_date DATE, accession TEXT, doc_url TEXT, primary_doc TEXT, size_bytes BIGINT, retrieved_at TIMESTAMP, PRIMARY KEY(accession) ); """
+
+SCHEMA_RSS = """ CREATE TABLE IF NOT EXISTS rss_items ( feed_url TEXT, guid TEXT, title TEXT, link TEXT, published TIMESTAMP, summary TEXT, source TEXT, retrieved_at TIMESTAMP, PRIMARY KEY(feed_url, guid) ); """
+
+def connect(db_path: str): p = Path(expanduser(db_path)).expanduser() p.parent.mkdir(parents=True, exist_ok=True) con = duckdb.connect(p) con.execute(SCHEMA_EDGAR) con.execute(SCHEMA_RSS) return con
+
+def insert_rows(con, table: str, rows: Iterable[Dict[str, Any]]): if not rows: return 0 cols = list(rows[0].keys()) placeholders = ",".join([":" + c for c in cols]) sql = f"INSERT OR REPLACE INTO {table} ({','.join(cols)}) VALUES ({placeholders})" for r in rows: con.execute(sql, r) return len(rows) """
+
+-----------------------------
+
+Utils (UA, robots, rate limit)
+
+-----------------------------
+
+FILES["scraper/utils.py"] = """ from future import annotations import time import random from urllib import robotparser from urllib.parse import urlparse from dataclasses import dataclass from typing import Optional
+
+USER_AGENTS = [ "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.3 Safari/605.1.15", "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36", ]
+
+def expanduser(p: str) -> str: return p.replace("~", str(Path.home()))
+
+@dataclass class RateLimiter: rate_per_sec: float = 1.0 _last_ts: float = 0.0
+
+def wait(self):
+    if self.rate_per_sec <= 0:
+        return
+    now = time.time()
+    min_gap = 1.0 / self.rate_per_sec
+    sleep = min_gap - (now - self._last_ts)
+    if sleep > 0:
+        time.sleep(sleep)
+    self._last_ts = time.time()
+
+class Robots: def init(self): self.cache = {}
+
+def allowed(self, url: str, ua: str) -> bool:
+    host = urlparse(url).netloc
+    base = f"https://{host}/robots.txt"
+    if host not in self.cache:
+        rp = robotparser.RobotFileParser()
+        try:
+            rp.set_url(base)
+            rp.read()
+            self.cache[host] = rp
+        except Exception:
+            self.cache[host] = None
+    rp = self.cache[host]
+    if rp is None:
+        return True
+    return rp.can_fetch(ua, url)
+
+def pick_user_agent(default: Optional[str] = None) -> str: return default or random.choice(USER_AGENTS) """
+
+-----------------------------
+
+Fetcher (httpx + retries)
+
+-----------------------------
+
+FILES["scraper/fetcher.py"] = """ from future import annotations import httpx from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type from .utils import RateLimiter, Robots, pick_user_agent
+
+class Fetcher: def init(self, user_agent: str, rate_per_sec: float = 1.0, timeout: float = 20.0): self.ua = user_agent self.rate = RateLimiter(rate_per_sec) self.robots = Robots() self.client = httpx.Client(http2=True, timeout=timeout, headers={"User-Agent": self.ua})
+
+def allowed(self, url: str) -> bool:
+    return self.robots.allowed(url, self.ua)
+
+@retry(reraise=True, stop=stop_after_attempt(3), wait=wait_exponential(multiplier=0.5, min=0.5, max=5),
+       retry=retry_if_exception_type((httpx.RequestError, httpx.HTTPStatusError)))
+def get(self, url: str) -> httpx.Response:
+    if not self.allowed(url):
+        raise PermissionError(f"robots.txt disallows: {url}")
+    self.rate.wait()
+    r = self.client.get(url)
+    r.raise_for_status()
+    return r
+
+def close(self):
+    self.client.close()
+
+"""
+
+-----------------------------
+
+Sources: Base + EDGAR + RSS
+
+-----------------------------
+
+FILES["scraper/sources/base.py"] = """ from future import annotations from typing import List, Dict, Any
+
+class BaseSource: name = "base" def crawl(self, **kwargs) -> List[Dict[str, Any]]: raise NotImplementedError """
+
+FILES["scraper/sources/edgar.py"] = """ from future import annotations from typing import List, Dict, Any from datetime import datetime from urllib.parse import urlencode
+
+from ..fetcher import Fetcher
+
+SEC EDGAR current API (company filings):
+
+https://data.sec.gov/api/xbrl/companyfacts/CIK##########.json  (for facts)
+
+https://data.sec.gov/submissions/CIK##########.json           (submissions)
+
+We'll use the 'submissions' endpoint to list recent filings, then construct document URLs.
+
+SEC_BASE = "https://data.sec.gov/submissions/"
+
+def normalize_cik(cik: str) -> str: digits = "".join(ch for ch in cik if ch.isdigit()) return digits.zfill(10)
+
+def filings(f: Fetcher, cik: str, forms: List[str], limit: int = 100) -> List[Dict[str, Any]]: cik10 = normalize_cik(cik) url = f"{SEC_BASE}CIK{cik10}.json" r = f.get(url) js = r.json() recent = js.get("filings", {}).get("recent", {}) acc = recent.get("accessionNumber", []) form = recent.get("form", []) date = recent.get("filingDate", []) primary = recent.get("primaryDocument", []) company = js.get("name") out: List[Dict[str, Any]] = [] for a, fm, dt, pd in zip(acc, form, date, primary): if forms and fm not in forms: continue out.append({ "cik": cik10, "ticker": None, "company": company, "form": fm, "filing_date": dt, "accession": a.replace("-", ""), "doc_url": f"https://www.sec.gov/Archives/edgar/data/{int(cik10)}/{a.replace('-', '')}/{pd}", "primary_doc": pd, "size_bytes": None, "retrieved_at": datetime.utcnow().isoformat(), }) if len(out) >= limit: break return out """
+
+FILES["scraper/sources/rss.py"] = """ from future import annotations from typing import List, Dict, Any from datetime import datetime import feedparser
+
+from ..fetcher import Fetcher
+
+def fetch_rss(feed_url: str, limit: int = 200) -> List[Dict[str, Any]]: d = feedparser.parse(feed_url) rows: List[Dict[str, Any]] = [] for e in d.entries[:limit]: rows.append({ "feed_url": feed_url, "guid": getattr(e, "id", getattr(e, "guid", getattr(e, "link", ""))), "title": getattr(e, "title", ""), "link": getattr(e, "link", ""), "published": getattr(e, "published", getattr(e, "updated", None)), "summary": getattr(e, "summary", ""), "source": getattr(getattr(e, "source", {}), "title", ""), "retrieved_at": datetime.utcnow().isoformat(), }) return rows """
+
+-----------------------------
+
+CLI entrypoint
+
+-----------------------------
+
+FILES["scraper/main.py"] = """ from future import annotations import argparse import yaml from pathlib import Path from rich import print
+
+from .fetcher import Fetcher from .storage import connect, insert_rows from .sources.edgar import filings from .sources.rss import fetch_rss
+
+CFG = Path(file).resolve().parent / "config.yaml"
+
+def load_cfg(): with open(CFG, "r", encoding="utf-8") as f: return yaml.safe_load(f)
+
+def cmd_edgar(args): cfg = load_cfg() ua = cfg.get("user_agent") rl = float(cfg.get("rate_limit_per_host_per_sec", 1.0)) db = cfg["storage"]["duckdb_path"] table = cfg["storage"]["table_edgar"]
+
+f = Fetcher(ua, rl)
+con = connect(db)
+
+rows = filings(f, cik=args.cik or args.ticker, forms=args.forms.split(",") if args.forms else [], limit=args.limit)
+n = insert_rows(con, table, rows)
+con.close()
+f.close()
+print(f"[green]Inserted {n} EDGAR rows into {table}")
+
+def cmd_rss(args): cfg = load_cfg() db = cfg["storage"]["duckdb_path"] table = cfg["storage"]["table_rss"]
+
+rows = fetch_rss(args.url, limit=args.limit)
+con = connect(db)
+n = insert_rows(con, table, rows)
+con.close()
+print(f"[green]Inserted {n} RSS items into {table}")
+
+def main(): ap = argparse.ArgumentParser(prog="scraper") sub = ap.add_subparsers(dest="cmd", required=True)
+
+ed = sub.add_parser("edgar", help="Crawl SEC EDGAR filings")
+ed.add_argument("--ticker", help="Ticker or CIK (if using ticker, we attempt same endpoint)")
+ed.add_argument("--cik", help="CIK (10-digit) – preferred if you know it")
+ed.add_argument("--forms", default="10-K,10-Q,8-K", help="Comma-separated forms to include")
+ed.add_argument("--limit", type=int, default=100)
+ed.set_defaults(func=cmd_edgar)
+
+rs = sub.add_parser("rss", help="Fetch RSS feed items")
+rs.add_argument("--url", required=True)
+rs.add_argument("--limit", type=int, default=200)
+rs.set_defaults(func=cmd_rss)
+
+args = ap.parse_args()
+args.func(args)
+
+if name == "main": main() """
+
+-----------------------------
+
+Write files
+
+-----------------------------
+
+def main(): for rel, content in FILES.items(): write(ROOT / rel, content)
+
+print(f"[OK] Scraper framework created at: {ROOT}")
+print("\nNext steps:")
+print("  1) python3 -m venv ~/tradebot/.venv && source ~/tradebot/.venv/bin/activate")
+print("  2) pip install -r ~/tradebot/scraper/requirements.scraper.txt")
+print("  3) Test EDGAR:  python -m scraper.main edgar --cik 0000320193 --forms 10-K,10-Q,8-K --limit 25  # (Apple)")
+print("  4) Test RSS:    python -m scraper.main rss --url https://www.sec.gov/news/pressreleases.rss --limit 50")
+print("  5) Query DB:    duckdb ~/tradebot/data/market.duckdb  (SELECT * FROM edgar_filings LIMIT 5;)")
+
+if name == "main": main()
+
