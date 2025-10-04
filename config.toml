@@ -1,0 +1,11 @@
+[project]
+name = "universal-scraper"
+
+[fetch]
+targets = []            # list of URLs will go here later
+timeout_secs = 20       # optional; used later
+# headers = { "User-Agent" = "Mozilla/5.0 ..." }  # optional
+
+[storage]
+backend = "none"        # options later: "json", "csv", "sqlite"
+# [storage.options]      # backend-specific options (e.g., file path, DB URL)
