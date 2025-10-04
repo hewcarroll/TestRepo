@@ -2,23 +2,21 @@ from __future__ import annotations
 from pathlib import Path
 import os
 
-ROOT = Path.home() / "tradebot" / "scraper"
+ROOT = Path.home() / "tradebot" / "scraper"        # base directory for generated files
+FILES: dict[str, str] = {}                          # in-memory map of file path -> content
 
-FILES: dict[str, str] = {}
-
-Helpers
-
-def write(path: Path, content: str, exist_ok: bool = True):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    if path.exists() and not exist_ok:
+# Helpers
+def write(path: Path, content: str, exist_ok: bool = True) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)  # ensure parent folders exist
+    if path.exists() and not exist_ok:              # skip if exists and caller forbids overwrite
         return
-    path.write_text(content, encoding="utf-8")
+    path.write_text(content, encoding="utf-8")      # write file to disk
 
-requirements.txt
+# requirements.txt
 
 FILES["requirements.scraper.txt"] = """ httpx[http2]>=0.27 anyio>=4.4 tenacity>=8.2 selectolax>=0.3.21 pydantic>=2.7 PyYAML>=6.0 duckdb>=1.0.0 feedparser>=6.0.11 python-dateutil>=2.9 user-agents>=2.2 """.strip() + "\n"
 
-README
+# README
 
 FILES["README_SCRAPER.md"] = """
 
@@ -58,11 +56,11 @@ You can add new sources under scraper/sources/ by extending BaseSource. """.stri
 
 FILES["scraper/__init__.py"] = "__all__ = []\n"
 
-Config (YAML)
+# Config (YAML)
 
 FILES["scraper/config.yaml"] = """ user_agent: "TradeBotScraper/1.0 (+https://example.com/contact)" concurrency: 5 rate_limit_per_host_per_sec: 1.0   # polite default storage: duckdb_path: "~/tradebot/data/market.duckdb" table_edgar: edgar_filings table_rss: rss_items """.strip() + "\n"
 
-Storage (DuckDB)
+# Storage (DuckDB)
 
 
 FILES["scraper/storage.py"] = r''' from __future__ import annotations from pathlib import Path import duckdb from typing import Iterable, Dict, Any
@@ -81,7 +79,7 @@ CREATE TABLE IF NOT EXISTS rss_items (
 
 def insert_rows(con, table: str, rows: Iterable[Dict[str, Any]]): if not rows: return 0 cols = list(rows[0].keys()) placeholders = ",".join([":" + c for c in cols]) sql = f"INSERT OR REPLACE INTO {table} ({','.join(cols)}) VALUES ({placeholders})" for r in rows: con.execute(sql, r) return len(rows) '''
 
-Utils (UA, robots, rate limit)
+# Utils (UA, robots, rate limit)
 
 FILES["scraper/utils.py"] = """ from __future__ import annotations import time import random from urllib import robotparser from urllib.parse import urlparse from dataclasses import dataclass from typing import Optional
 
@@ -121,7 +119,7 @@ def allowed(self, url: str, ua: str) -> bool:
 
 def pick_user_agent(default: Optional[str] = None) -> str: return default or random.choice(USER_AGENTS) """
 
-Fetcher (httpx + retries)
+# Fetcher (httpx + retries)
 
 FILES["scraper/fetcher.py"] = """ from __future__ import annotations import httpx from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type from .utils import RateLimiter, Robots, pick_user_agent
 
@@ -144,8 +142,15 @@ def close(self):
     self.client.close()
 
 """
+def main() -> None:
+    # emit every scaffolded file from the FILES dict
+    for rel, content in FILES.items():
+        write(ROOT / rel, content)
 
-Sources: Base + EDGAR + RSS
+    # optional: status text
+    print(f"[OK] Scraper framework created at: {ROOT}")
+
+# Sources: Base + EDGAR + RSS
 
 FILES["scraper/sources/base.py"] = """ from __future__ import annotations from typing import List, Dict, Any
 
@@ -175,7 +180,7 @@ from ..fetcher import Fetcher
 
 def fetch_rss(feed_url: str, limit: int = 200) -> List[Dict[str, Any]]: d = feedparser.parse(feed_url) rows: List[Dict[str, Any]] = [] for e in d.entries[:limit]: rows.append({ "feed_url": feed_url, "guid": getattr(e, "id", getattr(e, "guid", getattr(e, "link", ""))), "title": getattr(e, "title", ""), "link": getattr(e, "link", ""), "published": getattr(e, "published", getattr(e, "updated", None)), "summary": getattr(e, "summary", ""), "source": getattr(getattr(e, "source", {}), "title", ""), "retrieved_at": datetime.utcnow().isoformat(), }) return rows """
 
-CLI entrypoint
+# CLI entrypoint
 
 FILES["scraper/main.py"] = """ from __future__ import annotations import argparse import yaml from pathlib import Path from rich import print
 
@@ -224,9 +229,7 @@ args.func(args)
 if __name__ == '__main__':
     main() """
 
-Write files
-
-def main(): for rel, content in FILES.items(): write(ROOT / rel, content)
+# Write files
 
 print(f"[OK] Scraper framework created at: {ROOT}")
 print("\nNext steps:")
