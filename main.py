@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # main.py — entry point + config load + dry-run
 # -----------------------------------------------------------
-# This file will orchestrate the scraper. For now, it only:
+# This file will orchestrate the scraper. For now, it only -
 # 1) Parses CLI args
 # 2) Loads and validates config.toml
 # 3) Prints a dry-run plan (no fetching yet)
@@ -11,6 +11,9 @@ import sys                         # read Python version, exit with codes
 import argparse                    # command-line interface
 from pathlib import Path           # file-safe paths
 import json                        # pretty printing of config summary
+import textwrap                    # pretty snippet printing
+from fetcher import fetch          # our new function
+
 
 # Python 3.11+ has tomllib in stdlib; if you're on 3.10, we'll give a clear error.
 try:
@@ -82,6 +85,11 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Print plan without fetching/parsing/storing.",
     )
+    parser.add_argument(
+        "--test-fetch",
+        action="store_true",
+        help="Fetch the first target from config and print a short summary.",
+    )
     args = parser.parse_args(argv)
 
     # Load config
@@ -114,8 +122,63 @@ def main(argv: list[str] | None = None) -> int:
                 "Implement storage.save(records, config).",
             ],
         }
-        print(json.dumps(plan, indent=2))
+    if args.test_fetch:
+        targets = cfg.get("fetch", {}).get("targets", [])
+        if not targets:
+            print("Nothing to fetch: add at least one URL to [fetch].targets in config.toml")
         return 0
+
+    url = targets[0]
+    print(f"Fetching: {url}")
+    res = fetch(url, cfg)
+    if not res.ok:
+        print(f"FETCH FAILED (status={res.status}): {res.error}")
+        return 1
+
+    preview = textwrap.shorten(
+        res.content[:5000].decode("utf-8", errors="replace"),
+        width=280,
+        placeholder="…",
+    )
+    print(
+        json.dumps(
+            {
+                "status": res.status,
+                "final_url": res.final_url,
+                "bytes": len(res.content),
+                "snippet": preview,
+            },
+            indent=2,
+        )
+    )
+    return 0
+
+    print(json.dumps(plan, indent=2))
+    return 0
+    if args.test_fetch:
+        targets = cfg.get("fetch", {}).get("targets", [])
+    if not targets:
+        print("Nothing to fetch: add at least one URL to [fetch].targets in config.toml")
+    return 0
+
+    url = targets[0]
+    print(f"Fetching: {url}")
+    res = fetch(url, cfg)
+    if not res.ok:
+        print(f"FETCH FAILED (status={res.status}): {res.error}")
+        return 1
+
+    preview = textwrap.shorten(
+        res.content[:5000].decode("utf-8", errors="replace"),
+        width=280, placeholder="…"
+    )
+    print(json.dumps({
+        "status": res.status,
+        "final_url": res.final_url,
+        "bytes": len(res.content),
+        "snippet": preview
+    }, indent=2))
+    return 0
 
     # If not dry-run, we still exit early (no behavior implemented yet).
     print("No operation: implement fetch/parse/store next. Try --dry-run.")

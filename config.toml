@@ -2,7 +2,7 @@
 name = "universal-scraper"
 
 [fetch]
-targets = []            # list of URLs will go here later
+targets = ["https://huggingface.co/datasets/open-web-math/open-web-math"]            # list of URLs will go here later
 timeout_secs = 20       # optional; used later
 # headers = { "User-Agent" = "Mozilla/5.0 ..." }  # optional
 
