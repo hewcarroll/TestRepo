@@ -2,10 +2,11 @@
 name = "universal-scraper"
 
 [fetch]
-targets = ["https://huggingface.co/datasets/open-web-math/open-web-math"]            # list of URLs will go here later
-timeout_secs = 20       # optional; used later
-# headers = { "User-Agent" = "Mozilla/5.0 ..." }  # optional
+targets = ["https://query1.finance.yahoo.com/v7/finance/quote?symbols=AAPL,MSFT,GOOG"]
+timeout_secs = 20
 
 [storage]
-backend = "none"        # options later: "json", "csv", "sqlite"
-# [storage.options]      # backend-specific options (e.g., file path, DB URL)
+backend = "supabase"
+
+[storage.options]
+table = "records"

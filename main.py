@@ -7,15 +7,16 @@
 # 3) Prints a dry-run plan (no fetching yet)
 
 from __future__ import annotations  # future-proof typing (no runtime impact)
-import sys                         # read Python version, exit with codes
-import argparse                    # command-line interface
-from pathlib import Path           # file-safe paths
-import json                        # pretty printing of config summary
-import textwrap                    # pretty snippet printing
-from fetcher import fetch          # our new function
+import sys                          # read Python version, exit with codes
+import argparse                     # command-line interface
+from pathlib import Path            # file-safe paths
+import json                         # pretty printing of config summary
+import textwrap                     # pretty snippet printing
+from dotenv import load_dotenv;
+load_dotenv()  # reads .env in the project root into os.environ
+from fetcher import fetch           # our new function
+from parser import parse            # turn raw -> records
 
-
-# Python 3.11+ has tomllib in stdlib; if you're on 3.10, we'll give a clear error.
 try:
     import tomllib  # Python 3.11+
 except ModuleNotFoundError as e:
@@ -65,8 +66,9 @@ def validate_config(cfg: dict) -> None:
     # storage
     storage = cfg.get("storage", {})
     backend = storage.get("backend", "none")
-    if backend not in {"none", "json", "csv", "sqlite"}:
-        raise ValueError("config.storage.backend must be one of: none, json, csv, sqlite")
+    if storage["backend"] not in {"none", "json", "csv", "sqlite", "supabase"}:
+        raise ValueError("Invalid config: config.storage.backend must be one of: none, json, csv, sqlite, supabase")
+
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -122,18 +124,42 @@ def main(argv: list[str] | None = None) -> int:
                 "Implement storage.save(records, config).",
             ],
         }
+        # Test-fetch mode
     if args.test_fetch:
         targets = cfg.get("fetch", {}).get("targets", [])
         if not targets:
             print("Nothing to fetch: add at least one URL to [fetch].targets in config.toml")
-        return 0
+            return 0
 
-    url = targets[0]
-    print(f"Fetching: {url}")
-    res = fetch(url, cfg)
-    if not res.ok:
-        print(f"FETCH FAILED (status={res.status}): {res.error}")
-        return 1
+        url = targets[0]
+        print(f"Fetching: {url}")
+        res = fetch(url, cfg)
+        if not res.ok:
+            print(f"FETCH FAILED (status={res.status}): {res.error}")
+            return 1
+
+        # Turn raw fetch output into structured records
+        records = parse(res, cfg)
+
+        backend = cfg.get("storage", {}).get("backend", "none")
+        if backend in {"sqlite", "supabase"}:  # persist for either backend
+            from storage import save as storage_save  # local import keeps startup light
+            storage_save(
+                records,
+                cfg,
+                meta={"url": url, "final_url": res.final_url, "status": res.status},
+            )
+
+    print(f"Saved to {backend}.")
+
+
+    # Print compact summary
+    print(json.dumps({
+        "status": res.status,
+        "records_count": len(records),
+        "sample_record": records[0] if records else None,
+    }, indent=2))
+    return 0
 
     preview = textwrap.shorten(
         res.content[:5000].decode("utf-8", errors="replace"),
