@@ -1,0 +1,337 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - PDT Trading Bot Admin{% endblock %}
+
+{% block page_title %}Trading Dashboard{% endblock %}
+
+{% block content %}
+<!-- Dashboard Overview Cards -->
+<div class="row mb-4">
+    <div class="col-md-3">
+        <div class="card bg-primary text-white">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h6 class="card-title">Daily P&L</h6>
+                        <h3 id="daily-pnl" class="mb-0">$0.00</h3>
+                        <small id="daily-return">0.00%</small>
+                    </div>
+                    <div class="align-self-center">
+                        <i class="fas fa-chart-line fa-2x opacity-75"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-3">
+        <div class="card bg-success text-white">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h6 class="card-title">Total P&L</h6>
+                        <h3 id="total-pnl" class="mb-0">$0.00</h3>
+                        <small id="total-return">0.00%</small>
+                    </div>
+                    <div class="align-self-center">
+                        <i class="fas fa-dollar-sign fa-2x opacity-75"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-3">
+        <div class="card bg-info text-white">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h6 class="card-title">Active Positions</h6>
+                        <h3 id="active-positions" class="mb-0">0</h3>
+                        <small id="positions-value">$0.00</small>
+                    </div>
+                    <div class="align-self-center">
+                        <i class="fas fa-chart-pie fa-2x opacity-75"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-3">
+        <div class="card bg-warning text-white">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h6 class="card-title">Win Rate</h6>
+                        <h3 id="win-rate" class="mb-0">0%</h3>
+                        <small id="sharpe-ratio">Sharpe: 0.00</small>
+                    </div>
+                    <div class="align-self-center">
+                        <i class="fas fa-trophy fa-2x opacity-75"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Charts Row -->
+<div class="row mb-4">
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-chart-area me-2"></i>
+                    P&L Performance
+                </h5>
+            </div>
+            <div class="card-body">
+                <canvas id="pnlChart" width="400" height="200"></canvas>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-shield-alt me-2"></i>
+                    Risk Metrics
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <div class="d-flex justify-content-between">
+                        <span>VaR (95%):</span>
+                        <span id="var-95" class="text-danger">$0.00</span>
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <div class="d-flex justify-content-between">
+                        <span>Volatility:</span>
+                        <span id="volatility">0.00%</span>
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <div class="d-flex justify-content-between">
+                        <span>Max Drawdown:</span>
+                        <span id="max-drawdown" class="text-danger">0.00%</span>
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <div class="d-flex justify-content-between">
+                        <span>Leverage:</span>
+                        <span id="leverage">0.00x</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Positions and Recent Trades -->
+<div class="row mb-4">
+    <!-- Current Positions -->
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-chart-line me-2"></i>
+                    Current Positions
+                </h5>
+                <a href="/positions" class="btn btn-sm btn-outline-primary">View All</a>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>Symbol</th>
+                                <th>Qty</th>
+                                <th>Price</th>
+                                <th>P&L</th>
+                            </tr>
+                        </thead>
+                        <tbody id="positions-table">
+                            <tr>
+                                <td colspan="4" class="text-center text-muted">Loading positions...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Recent Trades -->
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-exchange-alt me-2"></i>
+                    Recent Trades
+                </h5>
+                <a href="/trades" class="btn btn-sm btn-outline-primary">View All</a>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>Symbol</th>
+                                <th>Side</th>
+                                <th>Qty</th>
+                                <th>P&L</th>
+                            </tr>
+                        </thead>
+                        <tbody id="trades-table">
+                            <tr>
+                                <td colspan="4" class="text-center text-muted">Loading trades...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- PDT Status and Bot Controls -->
+<div class="row mb-4">
+    <!-- PDT Status -->
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-clipboard-check me-2"></i>
+                    PDT Status
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-6">
+                        <div class="text-center">
+                            <div class="progress mb-2" style="height: 10px;">
+                                <div id="pdt-progress-bar" class="progress-bar bg-warning" role="progressbar" style="width: 0%"></div>
+                            </div>
+                            <small class="text-muted">Volume Progress</small>
+                        </div>
+                    </div>
+                    <div class="col-6">
+                        <div class="pdt-info">
+                            <div class="mb-2">
+                                <small class="text-muted d-block">Day Trades Used</small>
+                                <span id="day-trades-used" class="h5">0</span>
+                                <small class="text-muted">/ 3</small>
+                            </div>
+                            <div class="mb-2">
+                                <small class="text-muted d-block">Volume Towards $25K</small>
+                                <span id="volume-progress" class="h5">$0</span>
+                            </div>
+                            <div class="mb-2">
+                                <small class="text-muted d-block">Status</small>
+                                <span id="pdt-status" class="badge bg-secondary">Loading...</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Bot Controls -->
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-robot me-2"></i>
+                    Bot Controls
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="row g-2">
+                    <div class="col-6">
+                        <button class="btn btn-success w-100" onclick="controlBot('start')" id="start-btn">
+                            <i class="fas fa-play me-2"></i>
+                            Start Bot
+                        </button>
+                    </div>
+                    <div class="col-6">
+                        <button class="btn btn-warning w-100" onclick="controlBot('pause')" id="pause-btn">
+                            <i class="fas fa-pause me-2"></i>
+                            Pause Bot
+                        </button>
+                    </div>
+                    <div class="col-6">
+                        <button class="btn btn-danger w-100" onclick="controlBot('stop')" id="stop-btn">
+                            <i class="fas fa-stop me-2"></i>
+                            Stop Bot
+                        </button>
+                    </div>
+                    <div class="col-6">
+                        <button class="btn btn-outline-primary w-100" onclick="refreshStrategies()">
+                            <i class="fas fa-sync me-2"></i>
+                            Refresh
+                        </button>
+                    </div>
+                </div>
+                
+                <hr>
+                
+                <div class="strategies-status">
+                    <h6>Active Strategies</h6>
+                    <div id="strategies-list">
+                        <span class="text-muted">Loading strategies...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Market Data -->
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-chart-bar me-2"></i>
+                    Market Data
+                </h5>
+                <small class="text-muted">Last updated: <span id="market-last-update">Never</span></small>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>Symbol</th>
+                                <th>Price</th>
+                                <th>Change</th>
+                                <th>Volume</th>
+                                <th>Bid</th>
+                                <th>Ask</th>
+                            </tr>
+                        </thead>
+                        <tbody id="market-data-table">
+                            <tr>
+                                <td colspan="6" class="text-center text-muted">Loading market data...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="https://cdn.jsdelivr.net/npm/date-fns@2.29.0/index.min.js"></script>
+{% endblock %}
+
+{% block page_scripts %}
+// Dashboard-specific JavaScript will be loaded from dashboard.js
+console.log('Dashboard template loaded');
+{% endblock %}
